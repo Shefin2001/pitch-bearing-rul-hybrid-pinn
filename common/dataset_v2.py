@@ -18,6 +18,8 @@ Key changes vs v1:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -206,12 +208,14 @@ class PitchBearingDataset(Dataset):
         shared_test_path: Optional[str | Path] = None,
         precompute_features: bool = True,
         verbose: bool = True,
+        feat_cache_dir: Optional[Path] = None,
     ) -> None:
         super().__init__()
         assert split in ("train", "val", "test")
         self.cfg = cfg
         self.split = split
         self.precompute_features = precompute_features
+        self._feat_cache_dir = feat_cache_dir
         self.labels = LabelLookup(labels_paris_path)
         self.runs: List[Tuple[str, str, int]] = []
         self._x: List[np.ndarray] = []
@@ -220,9 +224,42 @@ class PitchBearingDataset(Dataset):
         # meta = (rul, log_ttf, fault_idx, prog_mask, run_id, win_idx, speed)
 
         if split == "test" and shared_test_path is not None and Path(shared_test_path).exists():
+            # Test: always load from the pre-built shared index (fast, no re-extraction)
             self._load_from_shared(shared_test_path, verbose)
         else:
-            self._stream_from_parquet(verbose)
+            # Train / val: check disk cache first to skip expensive feature re-extraction
+            cache_path = self._feat_cache_path(cfg)
+            if cache_path is not None and cache_path.exists():
+                if verbose:
+                    print(f"[dataset_v2:{split}] CACHE HIT → {cache_path.name} "
+                          f"(delete to force rebuild)")
+                self._load_from_shared(cache_path, verbose)
+            else:
+                self._stream_from_parquet(verbose)
+                if cache_path is not None:
+                    if verbose:
+                        print(f"[dataset_v2:{split}] saving feature cache → {cache_path}")
+                    self.export_shared_test_index(cache_path)
+
+    def _feat_cache_path(self, cfg: Config) -> Optional[Path]:
+        """Deterministic .npz path for this split's processed windows + features.
+
+        Cache is keyed on the parameters that affect window content so it is
+        automatically invalidated when the parquet, split ratios, filter, or
+        window geometry changes.  Returns None when no cache dir is configured.
+        """
+        if self._feat_cache_dir is None:
+            return None
+        key = "|".join(str(x) for x in [
+            os.path.abspath(cfg.parquet_path), self.split,
+            cfg.window_size, cfg.window_stride, cfg.seed,
+            cfg.train_ratio, cfg.val_ratio,
+            cfg.bandpass_low, cfg.bandpass_high, cfg.filter_order,
+            self.precompute_features,
+        ])
+        h = hashlib.md5(key.encode()).hexdigest()[:12]
+        self._feat_cache_dir.mkdir(parents=True, exist_ok=True)
+        return self._feat_cache_dir / f"{self.split}_{h}.npz"
 
     def _stream_from_parquet(self, verbose: bool) -> None:
         cfg = self.cfg
@@ -426,12 +463,20 @@ def make_loaders(cfg: Config,
                  labels_paris_path: Optional[str | Path] = None,
                  shared_test_path: Optional[str | Path] = None,
                  ddp_sampler_fn=None,
-                 verbose: bool = True):
-    """Return (train_loader, val_loader, test_loader)."""
+                 verbose: bool = True,
+                 feat_cache_dir: Optional[Path] = None):
+    """Return (train_loader, val_loader, test_loader).
+
+    feat_cache_dir: directory for train/val feature caches (.npz).  On first
+    run, processed windows + features are saved here.  Subsequent runs load
+    from cache in seconds instead of re-extracting (saves 30–90 min per run).
+    """
     train = PitchBearingDataset(cfg, "train", labels_paris_path,
-                                shared_test_path=None, verbose=verbose)
+                                shared_test_path=None, verbose=verbose,
+                                feat_cache_dir=feat_cache_dir)
     val = PitchBearingDataset(cfg, "val", labels_paris_path,
-                              shared_test_path=None, verbose=verbose)
+                              shared_test_path=None, verbose=verbose,
+                              feat_cache_dir=feat_cache_dir)
     test = PitchBearingDataset(cfg, "test", labels_paris_path,
                                shared_test_path=shared_test_path, verbose=verbose)
 

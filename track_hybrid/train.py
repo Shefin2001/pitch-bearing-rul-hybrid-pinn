@@ -43,7 +43,9 @@ from Hybrid_PINN_ParisRUL.track_hybrid.loss import (  # noqa: E402
 from Hybrid_PINN_ParisRUL.track_hybrid.model import HybridParisModel  # noqa: E402
 
 RESULTS_DIR = ROOT / "Hybrid_PINN_ParisRUL" / "results" / "hybrid"
+DATASET_CACHE_DIR = ROOT / "Hybrid_PINN_ParisRUL" / "results" / "dataset_cache"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+DATASET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Training stability constants (sourced from LLM pipeline best practices)
@@ -254,6 +256,11 @@ def main():
         if is_main_process() and paris_path is None:
             print("[!] No paris-labels — using class-constant fallback (TTF will be coarse).")
 
+        # Use pre-built shared test npz (fast load) instead of re-extracting features
+        shared_test = args.shared_test if Path(args.shared_test).exists() else None
+        if is_main_process() and shared_test is None:
+            print("[!] shared-test npz not found — test set will re-extract features.")
+
         def _ddp_sampler(ds, shuffle):
             if world_size > 1:
                 return torch.utils.data.distributed.DistributedSampler(
@@ -261,8 +268,9 @@ def main():
             return None
 
         train_loader, val_loader, _ = make_loaders(
-            cfg, labels_paris_path=paris_path, shared_test_path=None,
+            cfg, labels_paris_path=paris_path, shared_test_path=shared_test,
             ddp_sampler_fn=_ddp_sampler, verbose=is_main_process(),
+            feat_cache_dir=DATASET_CACHE_DIR,
         )
 
         # ── Model ─────────────────────────────────────────────────────────────

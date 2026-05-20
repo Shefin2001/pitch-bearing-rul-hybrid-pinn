@@ -34,7 +34,9 @@ from Hybrid_PINN_ParisRUL.track_pinn.loss import PINNLoss, PINNLossWeights  # no
 from Hybrid_PINN_ParisRUL.track_pinn.model import PINNModel  # noqa: E402
 
 RESULTS_DIR = ROOT / "Hybrid_PINN_ParisRUL" / "results" / "pinn"
+DATASET_CACHE_DIR = ROOT / "Hybrid_PINN_ParisRUL" / "results" / "dataset_cache"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+DATASET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Training stability constants (same as hybrid track — shared benchmark basis)
@@ -210,6 +212,11 @@ def main():
         if is_main_process() and paris_path is None:
             print("[!] No paris-labels — using class-constant fallback.")
 
+        # Reuse the cached train/val features built by the hybrid track (same split)
+        shared_test_path = str(ROOT / "Hybrid_PINN_ParisRUL" / "results"
+                               / "test_index" / "test_windows.npz")
+        shared_test = shared_test_path if Path(shared_test_path).exists() else None
+
         def _ddp_sampler(ds, shuffle):
             if world_size > 1:
                 return torch.utils.data.distributed.DistributedSampler(
@@ -217,8 +224,9 @@ def main():
             return None
 
         train_loader, val_loader, _ = make_loaders(
-            cfg, labels_paris_path=paris_path,
+            cfg, labels_paris_path=paris_path, shared_test_path=shared_test,
             ddp_sampler_fn=_ddp_sampler, verbose=is_main_process(),
+            feat_cache_dir=DATASET_CACHE_DIR,
         )
 
         # ── Model ─────────────────────────────────────────────────────────────
