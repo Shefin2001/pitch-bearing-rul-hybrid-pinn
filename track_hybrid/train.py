@@ -221,8 +221,8 @@ def validate(model, loader, loss_fn, device, n_classes: int = 12,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs",       type=int,   default=100)
-    parser.add_argument("--batch",        type=int,   default=256)   # H100 80GB
-    parser.add_argument("--lr",           type=float, default=2e-4)  # √4 × base (4× batch)
+    parser.add_argument("--batch",        type=int,   default=1024)  # H200 141GB
+    parser.add_argument("--lr",           type=float, default=4e-4)  # √16 × base (16× batch vs original 64)
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--grad-clip",    type=float, default=1.0)
     parser.add_argument("--accum-steps",  type=int,   default=1)

@@ -9,8 +9,8 @@ export PARQUET_PATH="${PARQUET_PATH:-$DATA}"
 echo "=== 03_train_hybrid ==="
 
 EPOCHS="${EPOCHS:-100}"
-BATCH="${BATCH:-256}"        # H100 80GB: 4× default; TensorCore-aligned (multiple of 64)
-LR="${LR:-2e-4}"             # √4 × base LR (scales with √batch_size from 64→256)
+BATCH="${BATCH:-1024}"       # H200 141GB: TensorCore-aligned (multiple of 64)
+LR="${LR:-4e-4}"             # √16 × base LR (scales with √batch_size from 64→1024)
 NPROC="${NPROC:-auto}"
 
 SENTINEL="$HYBRID/results/hybrid/.training_complete"

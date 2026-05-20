@@ -127,8 +127,8 @@ if [ "${NGPU}" -le 1 ]; then
     echo "[sbatch] 1 GPU — bypassing torchrun for Hybrid track"
     python -m Hybrid_PINN_ParisRUL.track_hybrid.train \
         --epochs  "${HYBRID_EPOCHS:-100}" \
-        --batch   "${HYBRID_BATCH:-256}" \
-        --lr      "${HYBRID_LR:-2e-4}" \
+        --batch   "${HYBRID_BATCH:-1024}" \
+        --lr      "${HYBRID_LR:-4e-4}" \
         --accum-steps "${ACCUM_STEPS:-1}" \
         --paris-labels "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/labels/labels_paris.parquet" \
         --shared-test  "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/test_index/test_windows.npz"
@@ -138,8 +138,8 @@ else
         --nproc_per_node="${NGPU}" \
         "${REPO_ROOT}/Hybrid_PINN_ParisRUL/track_hybrid/train.py" \
         --epochs  "${HYBRID_EPOCHS:-100}" \
-        --batch   "${HYBRID_BATCH:-256}" \
-        --lr      "${HYBRID_LR:-2e-4}" \
+        --batch   "${HYBRID_BATCH:-1024}" \
+        --lr      "${HYBRID_LR:-4e-4}" \
         --accum-steps "${ACCUM_STEPS:-1}" \
         --paris-labels "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/labels/labels_paris.parquet" \
         --shared-test  "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/test_index/test_windows.npz"
@@ -152,8 +152,8 @@ echo "[sbatch] Stage 4: training PINN track (1 GPU)..."
 cd "${REPO_ROOT}"
 python -m Hybrid_PINN_ParisRUL.track_pinn.train \
     --epochs  "${PINN_EPOCHS:-100}" \
-    --batch   "${PINN_BATCH:-256}" \
-    --lr      "${PINN_LR:-1e-4}" \
+    --batch   "${PINN_BATCH:-1024}" \
+    --lr      "${PINN_LR:-2e-4}" \
     --paris-labels "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/labels/labels_paris.parquet"
 
 # ===========================================================
