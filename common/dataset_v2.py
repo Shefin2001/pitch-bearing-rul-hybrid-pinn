@@ -435,7 +435,7 @@ def make_loaders(cfg: Config,
     test = PitchBearingDataset(cfg, "test", labels_paris_path,
                                shared_test_path=shared_test_path, verbose=verbose)
 
-    def _make(ds: PitchBearingDataset, shuffle: bool):
+    def _make(ds: PitchBearingDataset, shuffle: bool, drop_last: bool = False):
         sampler = ddp_sampler_fn(ds, shuffle=shuffle) if ddp_sampler_fn else None
         return torch.utils.data.DataLoader(
             ds,
@@ -446,9 +446,13 @@ def make_loaders(cfg: Config,
             pin_memory=cfg.pin_memory,
             persistent_workers=cfg.persistent_workers and cfg.num_workers > 0,
             prefetch_factor=cfg.prefetch_factor if cfg.num_workers > 0 else None,
+            drop_last=drop_last,
         )
 
-    return _make(train, True), _make(val, False), _make(test, False)
+    # drop_last=True for training: uniform batch sizes let torch.compile capture
+    # CUDA graphs once without retracing on the ragged final batch each epoch.
+    train_drop = getattr(cfg, "drop_last", False)
+    return _make(train, True, drop_last=train_drop), _make(val, False), _make(test, False)
 
 
 # ---------------------------------------------------------------------------
