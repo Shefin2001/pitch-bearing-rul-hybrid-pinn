@@ -92,12 +92,16 @@ def distill(epochs: int, batch_size: int, lr: float,
     scaler = torch.cuda.amp.GradScaler(enabled=device.type == "cuda")
 
     best_val = float("inf")
-    for epoch in range(1, epochs + 1):
+    epoch_bar = tqdm(range(1, epochs + 1), desc="  distill epochs",
+                     unit="ep", ncols=110, leave=True)
+    for epoch in epoch_bar:
         student.train()
         running = 0.0
         n = 0
         t0 = time.time()
-        for batch in train_loader:
+        batch_bar = tqdm(train_loader, desc=f"  ep{epoch:03d} distill",
+                         unit="b", leave=False, ncols=110)
+        for batch in batch_bar:
             x_raw = batch["x"].to(device, non_blocking=True)
             x_feat = batch["feat"].to(device, non_blocking=True)
             target = {
@@ -139,13 +143,16 @@ def distill(epochs: int, batch_size: int, lr: float,
             bs = x_raw.size(0)
             running += loss.item() * bs
             n += bs
+            batch_bar.set_postfix(loss=f"{loss.item():.4f}")
 
         # ---- Val ----
         student.eval()
         preds = {"rul": [], "log_ttf": [], "fault_logits": [], "prog_logits": []}
         targs = {"rul": [], "log_ttf": [], "fault_idx": [], "prog_mask": []}
         with torch.no_grad():
-            for batch in val_loader:
+            val_bar = tqdm(val_loader, desc="  val       ",
+                           unit="b", leave=False, ncols=110)
+            for batch in val_bar:
                 x_raw = batch["x"].to(device, non_blocking=True)
                 x_feat = batch["feat"].to(device, non_blocking=True)
                 target = {k: batch[k].to(device, non_blocking=True)
@@ -161,9 +168,15 @@ def distill(epochs: int, batch_size: int, lr: float,
 
         train_loss = running / max(n, 1)
         elapsed = time.time() - t0
-        print(f"[distill ep {epoch:3d}/{epochs}] train={train_loss:.4f} "
-              f"val_rmse={m.get('rul_rmse', 0):.4f} "
-              f"val_f1={m.get('fault_f1_macro', 0):.3f} ({elapsed:.1f}s)")
+        epoch_bar.set_postfix(
+            train=f"{train_loss:.4f}",
+            val_rmse=f"{m.get('rul_rmse', 0):.4f}",
+            f1=f"{m.get('fault_f1_macro', 0):.3f}",
+            best=f"{best_val:.4f}",
+        )
+        epoch_bar.write(f"[distill ep {epoch:3d}/{epochs}] train={train_loss:.4f} "
+                        f"val_rmse={m.get('rul_rmse', 0):.4f} "
+                        f"val_f1={m.get('fault_f1_macro', 0):.3f} ({elapsed:.1f}s)")
 
         if m["rul_rmse"] < best_val:
             best_val = m["rul_rmse"]

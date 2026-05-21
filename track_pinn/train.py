@@ -60,6 +60,11 @@ def train_one_epoch(
     epoch: int, grad_clip: float, accum_steps: int,
     loss_ema: Optional[float], log_steps: int, is_main: bool,
 ) -> Tuple[Dict[str, float], float]:
+    try:
+        from tqdm import tqdm as _tqdm
+    except ImportError:
+        def _tqdm(it, **kw): return it  # noqa: E306
+
     model.train()
     running: Dict[str, float] = {}
     n = 0
@@ -68,7 +73,9 @@ def train_one_epoch(
     t_start = time.time()
     optimizer.zero_grad(set_to_none=True)
 
-    for step, batch in enumerate(loader):
+    batch_bar = _tqdm(loader, desc=f"  ep{epoch:03d} train", unit="b",
+                      leave=False, ncols=110, disable=not is_main)
+    for step, batch in enumerate(batch_bar):
         x_raw  = batch["x"].to(device, non_blocking=True)
         x_feat = batch["feat"].to(device, non_blocking=True)
         target = {k: batch[k].to(device, non_blocking=True)
@@ -92,14 +99,18 @@ def train_one_epoch(
         # ── Guard 2: Spike → skip step ───────────────────────────────────────
         if loss_ema is not None and loss_val > _SPIKE_FACTOR * loss_ema:
             if is_main:
-                print(f"  [SPIKE ep{epoch} s{step+1}] loss={loss_val:.4f} > "
-                      f"{_SPIKE_FACTOR}×EMA={loss_ema:.4f} — skipping step")
+                batch_bar.write(f"  [SPIKE ep{epoch} s{step+1}] loss={loss_val:.4f} > "
+                                f"{_SPIKE_FACTOR}×EMA={loss_ema:.4f} — skipping step")
             optimizer.zero_grad(set_to_none=True)
             skipped += 1
             continue
 
         loss_ema = (_EMA_ALPHA * loss_ema + (1 - _EMA_ALPHA) * loss_val
                     if loss_ema is not None else loss_val)
+
+        if is_main:
+            batch_bar.set_postfix(loss=f"{loss_val:.4f}",
+                                  ema=f"{loss_ema:.4f}", skip=skipped)
 
         scaler.scale(loss).backward()
         if (step + 1) % accum_steps == 0 or (step + 1) == len(loader):
@@ -111,8 +122,8 @@ def train_one_epoch(
 
             # ── Guard 3: Grad norm warning ────────────────────────────────────
             if is_main and gnorm > _GRAD_WARN:
-                print(f"  [GRAD WARN ep{epoch} s{step+1}] "
-                      f"grad_norm={gnorm:.1f} > {_GRAD_WARN} — clipped")
+                batch_bar.write(f"  [GRAD WARN ep{epoch} s{step+1}] "
+                                f"grad_norm={gnorm:.1f} > {_GRAD_WARN} — clipped")
 
             scaler.step(optimizer)
             scaler.update()
@@ -123,15 +134,15 @@ def train_one_epoch(
         for k, v in losses.items():
             running[k] = running.get(k, 0.0) + float(v.item()) * bs
 
-        # ── Per-step telemetry ────────────────────────────────────────────────
+        # ── Per-step log ──────────────────────────────────────────────────────
         if is_main and (step + 1) % log_steps == 0:
             elapsed = time.time() - t_start
             sps     = n / max(elapsed, 1e-6)
             gnorm_s = f"{grad_norms[-1]:.3f}" if grad_norms else "—"
             ema_s   = f"{loss_ema:.4f}" if loss_ema is not None else "—"
-            print(f"  step [{step+1:4d}/{len(loader)}]  "
-                  f"loss={loss_val:.4f}  ema={ema_s}  "
-                  f"gnorm={gnorm_s}  sps={sps:.0f}")
+            batch_bar.write(f"  step [{step+1:4d}/{len(loader)}]  "
+                            f"loss={loss_val:.4f}  ema={ema_s}  "
+                            f"gnorm={gnorm_s}  sps={sps:.0f}")
 
     stats = {k: v / max(n, 1) for k, v in running.items()}
     stats["grad_norm_mean"] = float(np.mean(grad_norms)) if grad_norms else 0.0
@@ -146,14 +157,22 @@ def train_one_epoch(
 # ---------------------------------------------------------------------------
 
 @torch.no_grad()
-def validate(model, loader, loss_fn, device, n_classes: int = 12) -> Dict[str, float]:
+def validate(model, loader, loss_fn, device, n_classes: int = 12,
+             is_main: bool = True) -> Dict[str, float]:
+    try:
+        from tqdm import tqdm as _tqdm
+    except ImportError:
+        def _tqdm(it, **kw): return it  # noqa: E306
+
     model.eval()
     preds   = {"rul": [], "log_ttf": [], "fault_logits": [], "prog_logits": []}
     targets = {"rul": [], "log_ttf": [], "fault_idx": [], "prog_mask": []}
     running_loss = 0.0
     n = 0
 
-    for batch in loader:
+    val_bar = _tqdm(loader, desc="  validate  ", unit="b",
+                    leave=False, ncols=110, disable=not is_main)
+    for batch in val_bar:
         x_raw  = batch["x"].to(device, non_blocking=True)
         x_feat = batch["feat"].to(device, non_blocking=True)
         target = {k: batch[k].to(device, non_blocking=True)
@@ -319,7 +338,18 @@ def main():
         history: List[Dict] = []
         t_run = time.time()
 
-        for epoch in range(start_epoch, cfg.num_epochs + 1):
+        try:
+            from tqdm import tqdm as _tqdm
+        except ImportError:
+            def _tqdm(it, **kw): return it  # noqa: E306
+
+        epoch_bar = _tqdm(
+            range(start_epoch, cfg.num_epochs + 1),
+            desc="  PINN epochs", unit="ep", ncols=110,
+            disable=not is_main_process(),
+            initial=start_epoch - 1, total=cfg.num_epochs,
+        )
+        for epoch in epoch_bar:
             if hasattr(train_loader, "sampler") and \
                hasattr(train_loader.sampler, "set_epoch"):
                 train_loader.sampler.set_epoch(epoch)
@@ -332,7 +362,7 @@ def main():
                 log_steps=args.log_steps, is_main=is_main_process(),
             )
             val_stats = validate(model, val_loader, loss_fn, device,
-                                 n_classes=cfg.n_classes)
+                                 n_classes=cfg.n_classes, is_main=is_main_process())
 
             # ── LR schedule ──────────────────────────────────────────────────
             if epoch <= warmup_epochs:
@@ -355,7 +385,13 @@ def main():
                 m_now = float(inner.m_paris().item())
 
                 phase = "warmup" if epoch <= warmup_epochs else "train"
-                print(
+                epoch_bar.set_postfix(
+                    val=f"{val_stats['val_loss']:.4f}",
+                    rmse=f"{val_stats.get('rul_rmse', 0):.4f}",
+                    best=f"{best_val:.4f}",
+                    C=f"{C_now:.2e}", m=f"{m_now:.2f}",
+                )
+                epoch_bar.write(
                     f"[ep {epoch:3d}/{cfg.num_epochs}|{phase}] "
                     f"train={train_stats.get('total', 0):.4f}  "
                     f"val={val_stats['val_loss']:.4f}  "

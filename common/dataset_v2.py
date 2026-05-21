@@ -292,11 +292,19 @@ class PitchBearingDataset(Dataset):
             for sp in cfg.speeds:
                 feat_extractors[sp] = FeatureExtractor(cfg, speed=sp)
 
+        try:
+            from tqdm import tqdm as _tqdm
+        except ImportError:
+            def _tqdm(it, **kw): return it  # noqa: E306
+
         # Buffer signal per run before processing (PyArrow streams may split a run)
         run_signal: Dict[Tuple[str, str, int], List[np.ndarray]] = {}
 
         pf = pq.ParquetFile(str(cfg.parquet_path))
-        for rg in range(pf.num_row_groups):
+        rg_bar = _tqdm(range(pf.num_row_groups),
+                       desc=f"[{self.split}] scan parquet",
+                       unit="RG", ncols=100, leave=False, disable=not verbose)
+        for rg in rg_bar:
             t = pf.read_row_group(rg, columns=col_names + ["speed", "condition", "file_idx"])
             sp = t.column("speed").to_pylist()
             co = t.column("condition").to_pylist()
@@ -320,7 +328,9 @@ class PitchBearingDataset(Dataset):
                 run_signal.setdefault(cur_key, []).append(sig[cur_start:].copy())
 
         # Process each assigned run end-to-end (preserves window ordering)
-        for run_id, run_key in enumerate(my_runs):
+        run_bar = _tqdm(my_runs, desc=f"[{self.split}] extract features",
+                        unit="run", ncols=100, leave=True, disable=not verbose)
+        for run_id, run_key in enumerate(run_bar):
             if run_key not in run_signal:
                 continue
             speed, cond, fi = run_key
@@ -369,6 +379,8 @@ class PitchBearingDataset(Dataset):
                 self._feat.append(features_arr[w_idx])
                 self._meta.append((float(rul), float(log_ttf), int(fault_idx),
                                    prog_mask, int(run_id), int(w_idx), speed))
+            if hasattr(run_bar, "set_postfix"):
+                run_bar.set_postfix(wins=f"{len(self._x):,}", cond=cond)
 
         if verbose:
             print(f"[dataset_v2:{self.split}] windows: {len(self._x)} | runs: {len(self.runs)}"
