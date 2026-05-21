@@ -37,7 +37,9 @@ from Hybrid_PINN_ParisRUL.track_hybrid.model import HybridParisModel  # noqa: E4
 from Hybrid_PINN_ParisRUL.track_pinn.inference import load_pinn  # noqa: E402
 
 RESULTS_DIR = ROOT / "Hybrid_PINN_ParisRUL" / "results" / "fusion"
+DATASET_CACHE_DIR = ROOT / "Hybrid_PINN_ParisRUL" / "results" / "dataset_cache"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+DATASET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -70,13 +72,18 @@ def distill(epochs: int, batch_size: int, lr: float,
     teacher_p.eval()
 
     train_ds = PitchBearingDataset(cfg, "train",
-                                   labels_paris_path=paris_labels, verbose=True)
+                                   labels_paris_path=paris_labels, verbose=True,
+                                   feat_cache_dir=DATASET_CACHE_DIR)
     val_ds = PitchBearingDataset(cfg, "val",
-                                 labels_paris_path=paris_labels, verbose=True)
+                                 labels_paris_path=paris_labels, verbose=True,
+                                 feat_cache_dir=DATASET_CACHE_DIR)
+    _pw = cfg.num_workers > 0
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True,
-                              num_workers=cfg.num_workers, pin_memory=True)
+                              num_workers=cfg.num_workers, pin_memory=True,
+                              persistent_workers=_pw, prefetch_factor=cfg.prefetch_factor if _pw else None)
     val_loader = DataLoader(val_ds, batch_size=cfg.batch_size, shuffle=False,
-                            num_workers=cfg.num_workers, pin_memory=True)
+                            num_workers=cfg.num_workers, pin_memory=True,
+                            persistent_workers=_pw, prefetch_factor=cfg.prefetch_factor if _pw else None)
 
     student = StudentModel(n_classes=cfg.n_classes).to(device)
     print(f"[distill] student params = {student.count_parameters():,}")
@@ -111,7 +118,7 @@ def distill(epochs: int, batch_size: int, lr: float,
                 soft_prog = (torch.sigmoid(t_h["prog_logits"])
                              + torch.sigmoid(t_p["prog_logits"])) * 0.5
 
-            with torch.autocast(device_type=device.type, enabled=device.type == "cuda"):
+            with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
                 s = student(x_raw, x_feat)
                 # Hybrid distillation: soft-targets + hard-labels
                 l_rul = 0.7 * F.mse_loss(s["rul"], soft_rul) + 0.3 * F.mse_loss(s["rul"], target["rul"])
@@ -226,7 +233,7 @@ def main():
     parser.add_argument("--paris-labels", type=str,
                         default=str(ROOT / "Hybrid_PINN_ParisRUL" / "results" / "labels" / "labels_paris.parquet"))
     parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--batch", type=int, default=64)
+    parser.add_argument("--batch", type=int, default=1024)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--export-edge", action="store_true")
     parser.add_argument("--export-cloud", action="store_true")

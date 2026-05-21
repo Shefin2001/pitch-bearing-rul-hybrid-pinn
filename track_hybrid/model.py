@@ -168,7 +168,8 @@ class FeatureBranch(nn.Module):
     Total: 160
     """
 
-    def __init__(self, d_group: int = 64, mlp_ratio: int = 4, dropout: float = 0.1):
+    def __init__(self, d_group: int = 64, mlp_ratio: int = 4, dropout: float = 0.1,
+                 out_dim: int = 256):
         super().__init__()
         self.time_emb = nn.Sequential(nn.Linear(55, d_group), nn.LayerNorm(d_group), nn.GELU())
         self.freq_emb = nn.Sequential(nn.Linear(60, d_group), nn.LayerNorm(d_group), nn.GELU())
@@ -179,7 +180,7 @@ class FeatureBranch(nn.Module):
             MixedMLPBlock(4, d_group, mlp_ratio, dropout),
             MixedMLPBlock(4, d_group, mlp_ratio, dropout),
         )
-        self.proj = nn.Linear(4 * d_group, 256)
+        self.proj = nn.Linear(4 * d_group, out_dim)
 
     def forward(self, feat160: torch.Tensor) -> torch.Tensor:
         # Split 160 → (55, 60, 40, 5)
@@ -270,7 +271,7 @@ class HybridParisModel(nn.Module):
         self.transformer = nn.TransformerEncoder(enc_layer, num_layers=n_transformer_layers)
 
         # ---- Feature branch ----
-        self.feat_branch = FeatureBranch(d_group=64, mlp_ratio=4, dropout=dropout)
+        self.feat_branch = FeatureBranch(d_group=64, mlp_ratio=4, dropout=dropout, out_dim=d_model)
 
         # ---- Fusion ----
         self.fusion = CrossAttnFusion(d_model, nhead, dropout)

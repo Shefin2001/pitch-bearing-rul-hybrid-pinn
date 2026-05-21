@@ -298,7 +298,7 @@ def main():
         loss_fn   = HybridMultiTaskLoss(HybridLossWeights())
         optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.effective_lr(),
                                       weight_decay=cfg.weight_decay)
-        scaler    = torch.amp.GradScaler("cuda", enabled=args.amp and device.type == "cuda")
+        scaler    = torch.cuda.amp.GradScaler(enabled=args.amp and device.type == "cuda")
 
         warmup_epochs = max(1, int(cfg.num_epochs * _WARMUP_FRAC))
         warmup_sched  = torch.optim.lr_scheduler.LinearLR(

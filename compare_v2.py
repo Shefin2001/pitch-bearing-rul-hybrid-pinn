@@ -174,9 +174,11 @@ def main():
                                   labels_paris_path=paris,
                                   shared_test_path=shared,
                                   verbose=True)
+    _pw = cfg.num_workers > 0
     loader = torch.utils.data.DataLoader(
         test_ds, batch_size=cfg.batch_size, shuffle=False,
         num_workers=cfg.num_workers, pin_memory=True,
+        persistent_workers=_pw, prefetch_factor=cfg.prefetch_factor if _pw else None,
     )
 
     print("\n[compare_v2] evaluating Hybrid ...")

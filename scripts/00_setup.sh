@@ -2,24 +2,26 @@
 # 00_setup.sh — Verify env, create dirs, tag pre-novel state.
 set -euo pipefail
 
-PROJECT_ROOT="${PROJECT_ROOT:-$HOME}"
-ROOT="${ROOT:-$PROJECT_ROOT/Hybrid_PINN_ParisRUL}"
-PROJECT="${PROJECT:-$PROJECT_ROOT}"
-DATA="${DATA:-$PROJECT_ROOT/pitch_bearing_dataset.parquet}"
+# ROOT = workspace root (contains pitch_bearing_dataset.parquet and Hybrid_PINN_ParisRUL/)
+ROOT="${ROOT:-$HOME}"
+# HYBRID = the Hybrid_PINN_ParisRUL subfolder
+HYBRID="${HYBRID:-$ROOT/Hybrid_PINN_ParisRUL}"
+DATA="${DATA:-$ROOT/pitch_bearing_dataset.parquet}"
 export PARQUET_PATH="${PARQUET_PATH:-$DATA}"
 
 echo "=== 00_setup ==="
 echo "  ROOT=$ROOT"
+echo "  HYBRID=$HYBRID"
 
-mkdir -p "$ROOT/results/labels"
-mkdir -p "$ROOT/results/test_index"
-mkdir -p "$ROOT/results/hybrid/tensorboard"
-mkdir -p "$ROOT/results/pinn/tensorboard"
-mkdir -p "$ROOT/results/fusion"
-mkdir -p "$ROOT/results/plots"
+mkdir -p "$HYBRID/results/labels"
+mkdir -p "$HYBRID/results/test_index"
+mkdir -p "$HYBRID/results/hybrid/tensorboard"
+mkdir -p "$HYBRID/results/pinn/tensorboard"
+mkdir -p "$HYBRID/results/fusion"
+mkdir -p "$HYBRID/results/plots"
 
 # Tag pre-novel state if not present
-( cd "$PROJECT" && git tag -f v1-pre-novel 2>/dev/null || true )
+( cd "$ROOT" && git tag -f v1-pre-novel 2>/dev/null || true )
 
 # Verify Python deps
 python -c "
