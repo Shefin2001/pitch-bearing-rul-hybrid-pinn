@@ -105,14 +105,30 @@ python -m Hybrid_PINN_ParisRUL.common.paris_labels \
     --out        "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/labels/labels_paris.parquet"
 
 # ===========================================================
-# Stage 2 — Build shared test index (single process, CPU)
-# PARQUET_PATH env var is already exported above; dataset_v2
-# reads it via cfg.parquet_path — no --parquet CLI arg needed.
+# Stage 2 — Build shared test index + pre-extract train/val features
+#
+# Pre-extracting features here (one-time, 60-90 min) means Stage 3 loads
+# from cache in ~2 min instead of re-extracting on every training run.
+# PARQUET_PATH env var is already exported above; dataset_v2 reads it via
+# cfg.parquet_path — no --parquet CLI arg needed.
 # ===========================================================
-echo "[sbatch] Stage 2: building shared test index..."
+_PARIS="${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/labels/labels_paris.parquet"
+_NPZ="${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/test_index/test_windows.npz"
+_CACHE="${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/dataset_cache"
+
+echo "[sbatch] Stage 2a: building shared test index..."
 python -m Hybrid_PINN_ParisRUL.common.dataset_v2 --build \
-    --paris-labels "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/labels/labels_paris.parquet" \
-    --out          "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/test_index/test_windows.npz"
+    --paris-labels "${_PARIS}" \
+    --out          "${_NPZ}"
+
+echo "[sbatch] Stage 2b: pre-extracting train+val features (one-time ~60-90 min)..."
+if ls "${_CACHE}"/train_*.npz &>/dev/null 2>&1; then
+    echo "[sbatch] Feature cache exists — skipping precompute"
+else
+    python -m Hybrid_PINN_ParisRUL.common.dataset_v2 --precompute-splits \
+        --paris-labels "${_PARIS}" \
+        --cache-dir    "${_CACHE}"
+fi
 
 # ===========================================================
 # Stage 3 — Train Hybrid track (multi-GPU DDP)
@@ -127,22 +143,22 @@ if [ "${NGPU}" -le 1 ]; then
     echo "[sbatch] 1 GPU — bypassing torchrun for Hybrid track"
     python -m Hybrid_PINN_ParisRUL.track_hybrid.train \
         --epochs  "${HYBRID_EPOCHS:-100}" \
-        --batch   "${HYBRID_BATCH:-1024}" \
-        --lr      "${HYBRID_LR:-4e-4}" \
+        --batch   "${HYBRID_BATCH:-4096}" \
+        --lr      "${HYBRID_LR:-8e-4}" \
         --accum-steps "${ACCUM_STEPS:-1}" \
-        --paris-labels "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/labels/labels_paris.parquet" \
-        --shared-test  "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/test_index/test_windows.npz"
+        --paris-labels "${_PARIS}" \
+        --shared-test  "${_NPZ}"
 else
     torchrun \
         --standalone \
         --nproc_per_node="${NGPU}" \
         "${REPO_ROOT}/Hybrid_PINN_ParisRUL/track_hybrid/train.py" \
         --epochs  "${HYBRID_EPOCHS:-100}" \
-        --batch   "${HYBRID_BATCH:-1024}" \
-        --lr      "${HYBRID_LR:-4e-4}" \
+        --batch   "${HYBRID_BATCH:-4096}" \
+        --lr      "${HYBRID_LR:-8e-4}" \
         --accum-steps "${ACCUM_STEPS:-1}" \
-        --paris-labels "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/labels/labels_paris.parquet" \
-        --shared-test  "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/test_index/test_windows.npz"
+        --paris-labels "${_PARIS}" \
+        --shared-test  "${_NPZ}"
 fi
 
 # ===========================================================
@@ -152,9 +168,9 @@ echo "[sbatch] Stage 4: training PINN track (1 GPU)..."
 cd "${REPO_ROOT}"
 python -m Hybrid_PINN_ParisRUL.track_pinn.train \
     --epochs  "${PINN_EPOCHS:-100}" \
-    --batch   "${PINN_BATCH:-1024}" \
-    --lr      "${PINN_LR:-2e-4}" \
-    --paris-labels "${OUTPUT_DIR}/Hybrid_PINN_ParisRUL/results/labels/labels_paris.parquet"
+    --batch   "${PINN_BATCH:-4096}" \
+    --lr      "${PINN_LR:-4e-4}" \
+    --paris-labels "${_PARIS}"
 
 # ===========================================================
 # Stage 5 — Distil + export (optional)

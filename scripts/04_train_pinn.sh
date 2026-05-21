@@ -9,8 +9,8 @@ export PARQUET_PATH="${PARQUET_PATH:-$DATA}"
 echo "=== 04_train_pinn ==="
 
 EPOCHS="${EPOCHS:-100}"
-BATCH="${BATCH:-1024}"       # H200 141GB: TensorCore-aligned (multiple of 64)
-LR="${LR:-2e-4}"             # √16 × base LR (scales with √batch_size from 64→1024)
+BATCH="${BATCH:-4096}"       # H200 141GB: 4096 fills VRAM; 4× fewer steps vs 1024
+LR="${LR:-4e-4}"             # √4 × 2e-4 (4× batch increase → 2× LR via sqrt-scaling rule)
 NPROC="${NPROC:-auto}"
 
 SENTINEL="$HYBRID/results/pinn/.training_complete"

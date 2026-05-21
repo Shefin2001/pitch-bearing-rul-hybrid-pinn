@@ -508,10 +508,14 @@ def _cli() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", action="store_true",
                         help="Build & save shared test index npz")
+    parser.add_argument("--precompute-splits", action="store_true",
+                        help="Pre-extract train+val features to disk cache (run once before training)")
     parser.add_argument("--paris-labels",
                         default=r"D:\Pitch_Bearings_RUL\PitchBearing_RUL_DualNN\Hybrid_PINN_ParisRUL\results\labels\labels_paris.parquet")
     parser.add_argument("--out",
                         default=r"D:\Pitch_Bearings_RUL\PitchBearing_RUL_DualNN\Hybrid_PINN_ParisRUL\results\test_index\test_windows.npz")
+    parser.add_argument("--cache-dir", default=None,
+                        help="Feature cache directory (default: <out-parent>/dataset_cache)")
     args = parser.parse_args()
 
     cfg = Config()
@@ -532,6 +536,18 @@ def _cli() -> None:
         ds = PitchBearingDataset(cfg, "test", labels, shared_test_path=None, verbose=True)
         ds.export_shared_test_index(args.out)
         print(f"[OK] shared test index saved → {args.out}")
+
+    if args.precompute_splits:
+        cache_dir = (Path(args.cache_dir) if args.cache_dir
+                     else Path(args.out).parent.parent / "dataset_cache")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        labels = args.paris_labels if Path(args.paris_labels).exists() else None
+        for split in ("train", "val"):
+            print(f"[dataset_v2] pre-extracting '{split}' features → {cache_dir} ...")
+            PitchBearingDataset(cfg, split, labels_paris_path=labels,
+                                feat_cache_dir=cache_dir, verbose=True)
+            print(f"[dataset_v2] '{split}' pre-extraction complete")
+        print("[dataset_v2] precompute-splits DONE — Stage 3 will load from cache")
 
 
 if __name__ == "__main__":
