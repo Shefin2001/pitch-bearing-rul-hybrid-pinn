@@ -216,6 +216,38 @@ time-varying load for fault diagnosis* dataset is **not bundled** with this repo
 
 ---
 
+## V3 track — physics-anchored RUL (damage-state-first)
+
+Journal entry 7 showed continuous RUL cannot be learned from this
+steady-state seeded-fault dataset: the FPT labels depend on window
+*position*, so any time-regressing head memorises. The `v3/` track removes
+time from the training objective entirely:
+
+```
+window ──► DamageNet (0.34 M params)          [the ONLY trained model]
+             ├─ fault class (12)              proven task, v2 F1 0.997
+             ├─ ordinal severity (CORN, 9 levels from A_MAP anchors)
+             └─ ln(crack length) μ, σ         interval-censored NLL
+                       │
+                       ▼
+           Paris-law MC engine (no training) ──► RUL p5/p50/p95 + IG fit
+                       │
+                       ▼
+           PROGRESSION_GRAPH semi-Markov  ──► next-stage risk + ETA
+```
+
+- **Run-level physics features** (`v3/signal_physics.py`): envelope-spectrum
+  SNR at BPFO/BPFI/BSF/FTF harmonics + Sawalhi-Randall dual-impulse spall
+  sizing. Run-level because fault frequencies are sub-Hz at 1–3 rpm.
+- **Pipeline**: `bash scripts/run_v3.sh` (stages 10→15, sentinel-guarded,
+  `--fresh` to restart; training auto-resumes from `checkpoint_last.pt`).
+- **Deployables**: `results/v3/export/damage_net_fp32.onnx` (1.4 MB,
+  ~2 ms/window CPU, torch-free via `v3/inference_v3.py`) and an INT8
+  variant (0.4 MB). `results/v3/expert_report.md` carries every physics
+  assumption + the fault-graph sojourn table for field sign-off.
+
+---
+
 ## Repository layout
 
 ```
