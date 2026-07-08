@@ -118,9 +118,9 @@ def mc_rul(log_a_mu: float, log_a_sigma: float,
     if xp is np:
         z = rng.standard_normal(n_samples)
         zc = rng.standard_normal(n_samples)
-        cls = rng.choice(N_CLASSES, size=n_samples,
-                         p=np.asarray(class_probs, dtype=np.float64)
-                         / max(np.sum(class_probs), 1e-12))
+        p = np.clip(np.asarray(class_probs, dtype=np.float64), 0.0, None)
+        p /= max(p.sum(), 1e-12)
+        cls = rng.choice(N_CLASSES, size=n_samples, p=p)
     else:
         xp.random.seed(seed)
         z = xp.random.standard_normal(n_samples)

@@ -131,9 +131,17 @@ def propagation_forecast(class_probs: np.ndarray,
         succ = PROGRESSION_GRAPH.get(node, [])
         if not succ:
             continue
+        # States whose anchor the crack estimate has already passed are not
+        # "future" stages -- without this filter their near-zero sojourn
+        # would spuriously dominate the rate normalisation.
+        ahead = [d for d in succ if A_MAP_M[d] > a_hat]
+        use_a_hat = True
+        if not ahead:
+            ahead, use_a_hat = succ, False
         rates = {}
-        for dst in succ:
-            t = edge_sojourn_seconds(node, dst, a_start_m=a_hat)
+        for dst in ahead:
+            t = edge_sojourn_seconds(node, dst,
+                                     a_start_m=a_hat if use_a_hat else None)
             rates[dst] = 1.0 / max(t, 1.0)
             eta_s[dst] = min(eta_s.get(dst, math.inf), t)
         z = sum(rates.values())
